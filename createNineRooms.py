@@ -1,25 +1,13 @@
 from MDP_utils import  MDP
 import numpy as np
-import mdptoolbox
-import scipy
-import math
-import itertools
-import math
 import os
 import random
-import unittest
-import torch
-from scipy.optimize import Bounds
-from scipy.optimize import LinearConstraint
-from scipy.optimize import minimize
-from expanded_approach import createGridWorld
 import pickle
-import matplotlib.pyplot as plt
-import multiprocessing
-import gym_minigrid
-import gym
 
 def createEnvironment(correct_transition = .95):
+    """"
+        creates a nine room grid world MDP with the specified probability of correct transitions
+    """
 
     dim1 = 19
     dim2 = 19
@@ -110,14 +98,16 @@ def createEnvironment(correct_transition = .95):
 
     return grid_world
 
+
+# create a set of grid worlds and save in a specified path
+save_path = 'Insert my path here'
+num_trials = 50
+
+
 grid_worlds = []
 np.random.seed(0)
-for i in range(0, 50):
+for i in range(0, num_trials):
     grid_world = createEnvironment()
     grid_worlds.append(grid_world)
-
-
-save_dir = os.path.join(os.path.split(os.path.abspath(__file__))[0], 'data')
-grid_path = os.path.join(save_dir, 'nineRooms/grid_worldsICAPSp95')
-with open(grid_path, 'wb') as grid_world_file:
+with open(save_path, 'wb') as grid_world_file:
     pickle.dump(grid_worlds, grid_world_file)
