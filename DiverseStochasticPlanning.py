@@ -1,24 +1,22 @@
 from MDP_utils import  MDP
 import numpy as np
-import mdptoolbox
 import scipy
 import math
 import itertools
 import math
 import time
 import os
-import unittest
 import pandas
 import torch
 from scipy.optimize import Bounds
 from scipy.optimize import LinearConstraint
 from scipy.optimize import minimize
-#from expanded_approach import createGridWorld
 import pickle
-import matplotlib as plt
-import multiprocessing
 
 def createRandomPolicy(num_states, num_actions, M):
+    """"
+        creates a random policy for the MDP 'M'
+    """
     policy = np.zeros((num_states, num_actions))
     for i in range(0, num_states):
         # compute number of enabled actions
@@ -34,6 +32,9 @@ def createRandomPolicy(num_states, num_actions, M):
     return policy
 
 def policy2occupancy(policy, num_states, num_actions, M):
+    """"
+        converts a policy for the MDP 'M' into an occupany map
+    """
     induced_transition = np.zeros((num_states, num_states))
     for i in range(0, num_states):
         induced_transition[i, :] = M.transitions[i, :, :].transpose() @ policy[i, :]
@@ -49,6 +50,9 @@ def policy2occupancy(policy, num_states, num_actions, M):
     return occupancy
 
 def KL_divergence(policy_1, policy_2):
+    """"
+        defines KL-divergence distance between two policies
+    """
     d = 0.0
     for i in range(0, policy_1.shape[0]):
         for j in range(0, policy_1.shape[1]):
@@ -59,6 +63,9 @@ def KL_divergence(policy_1, policy_2):
 
 
 def Jensen_Shannon(policy_1, policy_2):
+    """"
+        defines Jensen_Shannon distance between two policies
+    """
     d = torch.tensor([0.0])
     M = .5*(policy_1 + policy_2)
     for i in range(0, policy_1.shape[0]):
@@ -77,6 +84,9 @@ def two_Norm(policy_1, policy_2):
     return torch.norm(policy_1 - policy_2, p = 'nuc')
 
 def gradProj(occupancy, M, past_occupancy, metric = 'two_Norm'):
+    """"
+        Solves the gradient projection step in the projected gradient ascent method
+    """
 
     if metric != 'KL_divergence' and metric != 'two_Norm':
         raise Exception("method not coded yet")
@@ -139,7 +149,13 @@ def gradProj(occupancy, M, past_occupancy, metric = 'two_Norm'):
     occupancy = res.x.reshape(num_states, num_actions)
     return occupancy, np.linalg.norm(past_occupancy - occupancy)
 
-def projectedGradientDescent(num_policies, occupancies, objfctn, M, proj_metric):
+def projectedGradientAscent(num_policies, occupancies, objfctn, M, proj_metric):
+    """"
+         Implementation of the Projected Gradient Ascent algorithm where the constraints are determined by the feasible
+         simplex of the MDP 'M'. 'objfctn' is the specified objective function, 'num_policies' is the number of
+         policies in the return set, "occupancies" is the initial guess, and "proj_metric" is the distance metric
+         for the projection step
+    """
 
     step_size_0 = .01
     iterate = 0
@@ -183,9 +199,13 @@ def projectedGradientDescent(num_policies, occupancies, objfctn, M, proj_metric)
 
 
 def FrankWolfe(num_policies, occupancies, objfctn, M):
+    """"
+       Implementation of the Frank Wolfe algorithm where the constraints are determined by the feasible
+       simplex of the MDP 'M'. 'objfctn' is the specified objective function, 'num_policies' is the number of
+       policies in the return set, and "occupancies" is the initial guess.
+    """
 
     # first define the bounds and contstraints of the simplex:
-
     num_states = occupancies[0].shape[0]
     num_actions = occupancies[0].shape[1]
     length_vector = num_states * num_actions
@@ -286,7 +306,14 @@ def FrankWolfe(num_policies, occupancies, objfctn, M):
 
 
 
-def swarmOptimization(M, lam, num_policies, optimal_reward, obj_metric= Jensen_Shannon, proj_metric = 'two_Norm', sol_method = 'Frank-Wolfe'):
+def diversePlanning(M, lam, num_policies, optimal_reward, obj_metric= Jensen_Shannon, proj_metric = 'two_Norm', sol_method = 'Frank-Wolfe'):
+    """"
+    Main code - solves the divere stochastic planning problem for an MDP M with tradeoff parameter lam,
+    num_policies in the return set, a specified optimal_reward value ( to compute summary statistics),
+    and metrics specified for the pairwise diversity component of the objective function and the projection step (if using Projected
+    Gradient ascent)
+    """
+
     num_states = M.transitions.shape[0]
     num_actions = M.transitions.shape[1]
 
@@ -315,16 +342,16 @@ def swarmOptimization(M, lam, num_policies, optimal_reward, obj_metric= Jensen_S
 
 
     # iterative updates
-    time_start = time.clock()
-    if sol_method == 'projectedGradDescent':
-        occupancies, iterates = projectedGradientDescent(num_policies, occupancies, objfctn, M, proj_metric)
+    time_start = time.perf_counter()
+    if sol_method == 'projectedGradAscent':
+        occupancies, iterates = projectedGradientAscent(num_policies, occupancies, objfctn, M, proj_metric)
     elif sol_method == 'Frank-Wolfe':
         occupancies, iterates = FrankWolfe(num_policies, occupancies, objfctn, M)
     else:
         raise Exception("Soution method not coded yet")
-    time_elapsed = (time.clock() - time_start)
+    time_elapsed = (time.perf_counter() - time_start)
 
-    # compute policy statistics
+    # compute summary statistics
     rewards = 0
     squared_rewards = 0
     div_score_two = 0
@@ -340,9 +367,12 @@ def swarmOptimization(M, lam, num_policies, optimal_reward, obj_metric= Jensen_S
 
 
 def exactSolve(M, b):
-    # find exact optimal reward solution
+    """"
+     finds an optimal policy (without considering diversity) for MDP M using linear program
+     and returns it 'b' times
+    """
 
-    time_start = time.clock()
+    time_start = time.perf_counter()
     # first define the bounds and contstraints of the simplex:
     num_states = M.transitions.shape[0]
     num_actions = M.transitions.shape[1]
@@ -386,55 +416,31 @@ def exactSolve(M, b):
         optimal_occupancies.append(occupancy)
     rewards = b * np.sum(optimal_occupancies[i] * M.rewards)
     iterates = 1
-    time_elapsed = (time.clock() - time_start)
+    time_elapsed = (time.perf_counter() - time_start)
 
     return optimal_occupancies, rewards, iterates, time_elapsed
 
 
-def test_performance(load_data = True, file_path = 'nineRooms\grid_worldsICAPSp95'):
+def test_performance(grid_path, num_trials):
     """"
-       loads data from specified file if load_data = True, otherwise creates a basic example. Then runs the diverse
-        stochastic planning algorithm for a range of specified lambda values or number of paths + number of trials.
+    loads grid world from specified file. Then runs the diverse stochastic planning algorithm
+    for a range of specified lambda values or number of paths + number of trials.
     """
 
-    num_trials = 5 # Number of environments (each one has varying rewards/setup)
-
-    if load_data:
-        load_dir = os.path.join(os.path.split(os.path.abspath(__file__))[0], 'data')
-        load_path = os.path.join(load_dir, file_path)
-        with open(load_path, 'rb') as grid_world_file:
-            grid_worlds = pickle.load(grid_world_file)
-    else:
-
-        # define world parameters
-        grid_size = 5
-        num_actions = 5
-        num_states = grid_size * grid_size
-        grid_worlds = []
-        # create set of grid worlds
-        for i in range(0, num_trials):
-
-            grid_world = MDP('gridworld')
-            grid_world.gridworld_2D(dim=(grid_size, grid_size), p_correctmove=.95)
-            grid_world.transitions[-1, :, :] = np.zeros(num_states)
-            grid_world.transitions[-1, :, 0] = 1
-
-            large_const = 100
-            trans_cost = -np.random.rand(num_states, num_actions)
-            trans_cost[-1, :] = large_const * np.ones((num_actions))
-            grid_world.rewards = trans_costf
-            grid_world.enabled_actions[-1] = [True, False, False, False, False]
-            grid_worlds.append(grid_world)
-
+    with open(grid_path, 'rb') as grid_world_file:
+        grid_worlds = pickle.load(grid_world_file)
     grid_worlds = grid_worlds[0:num_trials]
+
     lam_values = np.linspace(30, 50, num = 5) # range of lambda values to test
-    b = 6
+    b = 6 # number of paths to return
+
+    # solve setup exactly to determine optimal reward
     optimal_rewards = np.zeros(num_trials)
     for idx_trial, grid_world in enumerate(grid_worlds):
         _, optimal_reward,_ , _ = exactSolve(grid_world, b);
         optimal_rewards[idx_trial] = optimal_reward/b;
-    #lam = 8
-    #num_paths = np.linspace(1, 10, num = 10).astype(int)
+
+
     # store results and learned occupancy maps
     results = np.zeros((len(lam_values), num_trials, 6))
     occupancy_maps = {}
@@ -443,7 +449,6 @@ def test_performance(load_data = True, file_path = 'nineRooms\grid_worldsICAPSp9
     # compute average diversity score (two norm),average diversity score (JS norm),
     # average performance, and average objective function value (two norm + JS norm),
     # then variance of all five of these metrics
-
     for idx_lam, lam in enumerate(lam_values):
         for idx_trial, grid_world in enumerate(grid_worlds):
             if lam == 0 or b == 1: # use exct linear programming if lambda = 0 or b =1
@@ -452,8 +457,8 @@ def test_performance(load_data = True, file_path = 'nineRooms\grid_worldsICAPSp9
                 div_score_two = 0
                 div_score_js = 0
             else:
-                # solve using swarm optimization algorithm
-                optimal_occupancies, div_score_two, div_score_js, rewards, squared_rewards, iterates, time_elapsed = swarmOptimization(grid_world, lam, b, optimal_rewards[idx_trial], obj_metric= Jensen_Shannon, proj_metric = 'two_Norm')
+                # solve using diverse planning algorithm
+                optimal_occupancies, div_score_two, div_score_js, rewards, squared_rewards, iterates, time_elapsed = diversePlanning(grid_world, lam, b, optimal_rewards[idx_trial], obj_metric= Jensen_Shannon, proj_metric = 'two_Norm')
 
             print("The Lambda Value is: " + str(lam) + ", the trial is: " + str(idx_trial) + ", the Jensen-Shannon Divergence: " + str(div_score_js))
             # save results
@@ -464,37 +469,25 @@ def test_performance(load_data = True, file_path = 'nineRooms\grid_worldsICAPSp9
             num_iterates[idx_lam, idx_trial] = iterates
             comp_time[idx_lam, idx_trial] = time_elapsed
 
-
-
     return results, b, num_iterates, comp_time, lam_values, occupancy_maps, grid_worlds
 
-def main():
+def main(grid_path, save_grids, results_path, save_results, occupancy_path, save_occupancy_maps, num_trials):
     """"
-    runs test performance to get occupancy maps and results for the given problem setup,
-    then saves results
+    runs test performance to get occupancy maps and results for the given problem setup and specified
+    number of trials 'num_trials'
+    then saves results in the specified files if desired (determined by boolean variables
+    save_grids, save_results, save_occupancy_maps
     """
-    results, num_paths, num_iterates, comp_time, lam_values, occupancy_maps, grid_worlds = test_performance()
+    results, num_paths, num_iterates, comp_time, lam_values, occupancy_maps, grid_worlds = test_performance(grid_path, num_trials)
 
-    save_grids = False
-    save_results = True
-    save_occupancy_maps = True
-
-    save_dir = os.path.join(os.path.split(os.path.abspath(__file__))[0], 'data')
 
     if save_grids:
-        grid_path = os.path.join(save_dir, 'nineRooms/grid_worldsICAPSp95')
         with open(grid_path, 'wb') as grid_world_file:
             pickle.dump(grid_worlds, grid_world_file)
 
     if save_results:
-        results_path = os.path.join(save_dir, 'nineRooms/QuadraticReward/resultstrial05lam3050.npz')
         np.savez(results_path, results = results, num_paths = num_paths, num_iterates = num_iterates, comp_time = comp_time, lam_values = lam_values)
 
     if save_occupancy_maps:
-        occupancy_path = os.path.join(save_dir, 'nineRooms/QuadraticReward/occupancyMapstrial05lam3050')
         with open(occupancy_path, 'wb') as occupancy_file:
             pickle.dump(occupancy_maps, occupancy_file)
-
-
-if __name__ == "__main__":
-    main()
