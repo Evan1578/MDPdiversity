@@ -4,10 +4,8 @@ This only supports the grid world examples used in the paper, but feel free to e
 
 The main requirements are: numpy, scipy, pandas, matplotlib, and pytorch - see the requirements.txt file for full specifications.
 
-To use this package, first run 'createFourRooms.py' or 'createNineRooms.py' to create the grid worlds.
+To run a minimal example using a fourRoom grid world, simply run the script "minimalExample.py". Using this example you can play around with the hyperparameters.
 
-Then, used the saved grid worlds to test the performance of the diverse stochastic planning algorithm using 'DiverseStochasticPlanning.py'
+To explore this package further, first run 'createFourRooms.py' or 'createNineRooms.py' to create the grid worlds. Then, used the saved grid worlds to test the performance of the diverse stochastic planning algorithm using 'DiverseStochasticPlanning.py'. The resulting occupancy maps can be visualized using 'visualizeOccupancyMaps.py'.
 
-The resulting occupancy maps can be visualized using 'visualizeOccupancyMaps.py'.
-
-Finally, please get in touch if you have questions or need help using our algorithm. My email is escopec - at - utexas.edu. 
+Please get in touch if you have questions or need help using our algorithm. My email is escopec - at - utexas.edu. 

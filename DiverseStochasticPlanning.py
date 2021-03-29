@@ -12,6 +12,7 @@ from scipy.optimize import Bounds
 from scipy.optimize import LinearConstraint
 from scipy.optimize import minimize
 import pickle
+import warnings
 
 def createRandomPolicy(num_states, num_actions, M):
     """"
@@ -248,7 +249,6 @@ def FrankWolfe(num_policies, occupancies, objfctn, M):
     c_const = .001
 
     while True:
-        print("The current iterate is " + str(iterate))
         obj_value = objfctn(occupancies)
         obj_value.backward()
         d = []
@@ -262,6 +262,7 @@ def FrankWolfe(num_policies, occupancies, objfctn, M):
             # initial guess
             guess = createRandomPolicy(num_states, num_actions, M)
             x0 = policy2occupancy(guess, num_states, num_actions, M).flatten()
+            warnings.filterwarnings('ignore')
             res = scipy.optimize.linprog(-c, A_eq=constraint_LHS, b_eq=constraint_RHS, bounds= Bounds, method='interior-point',
                                    callback=None, options=None, x0=x0)
             s = res.x
@@ -270,6 +271,8 @@ def FrankWolfe(num_policies, occupancies, objfctn, M):
             d_i = s - past_occupancies[i]
             gt = gt + torch.sum(d_i *  occupancies[i].grad)# compute frank wolfe gap
             d.append(d_i)
+
+        print("The current iterate is " + str(iterate) + ", the optimality gap is " + str(gt.detach().numpy()))
 
         if gt < tol: #break if near stationary point (frank wolfe gap is small)
             break
@@ -306,7 +309,7 @@ def FrankWolfe(num_policies, occupancies, objfctn, M):
 
 
 
-def diversePlanning(M, lam, num_policies, optimal_reward, obj_metric= Jensen_Shannon, proj_metric = 'two_Norm', sol_method = 'Frank-Wolfe'):
+def diversePlanning(M, lam, num_policies, obj_metric= Jensen_Shannon, proj_metric = 'two_Norm', sol_method = 'Frank-Wolfe'):
     """"
     Main code - solves the divere stochastic planning problem for an MDP M with tradeoff parameter lam,
     num_policies in the return set, a specified optimal_reward value ( to compute summary statistics),
@@ -335,7 +338,7 @@ def diversePlanning(M, lam, num_policies, optimal_reward, obj_metric= Jensen_Sha
     def objfctn(occupancies, metric = obj_metric):
         f = 0
         for i in range(0, num_policies):
-            f = f - (1/num_policies)*(optimal_reward - torch.sum(torch.mul(occupancies[i], torch.tensor(M.rewards))))**2
+            f = f + (1/num_policies)*torch.sum(torch.mul(occupancies[i], torch.tensor(M.rewards)))
             for j in range(i + 1, num_policies):
                 f = f + lam * (2/(num_policies*(num_policies - 1)))* obj_metric(occupancies[i], occupancies[j])
         return f
@@ -353,17 +356,15 @@ def diversePlanning(M, lam, num_policies, optimal_reward, obj_metric= Jensen_Sha
 
     # compute summary statistics
     rewards = 0
-    squared_rewards = 0
     div_score_two = 0
     div_score_js = 0
     for i in range(0, num_policies):
         rewards = rewards + torch.sum(occupancies[i] * torch.tensor(M.rewards))**2
-        squared_rewards = squared_rewards - (optimal_reward - torch.sum(torch.mul(occupancies[i], torch.tensor(M.rewards))))**2
         for j in range(i + 1, num_policies):
             div_score_two = div_score_two + two_Norm(occupancies[i], occupancies[j])
             div_score_js = div_score_js + Jensen_Shannon(occupancies[i], occupancies[j])
 
-    return occupancies, div_score_two, div_score_js, rewards, squared_rewards, iterates, time_elapsed
+    return occupancies, div_score_two, div_score_js, rewards, iterates, time_elapsed
 
 
 def exactSolve(M, b):
@@ -404,6 +405,7 @@ def exactSolve(M, b):
     x0 = policy2occupancy(guess, num_states, num_actions, M).flatten()
     # solve problem
     c = M.rewards.flatten()
+    olderr = sc.seterr(all='ignore') # supress warnings
     res = scipy.optimize.linprog(-c, A_eq=constraint_LHS, b_eq=constraint_RHS, bounds=Bounds, method='interior-point',
                                  callback=None, options=None, x0=x0)
     occupancy = res.x
@@ -420,74 +422,3 @@ def exactSolve(M, b):
 
     return optimal_occupancies, rewards, iterates, time_elapsed
 
-
-def test_performance(grid_path, num_trials):
-    """"
-    loads grid world from specified file. Then runs the diverse stochastic planning algorithm
-    for a range of specified lambda values or number of paths + number of trials.
-    """
-
-    with open(grid_path, 'rb') as grid_world_file:
-        grid_worlds = pickle.load(grid_world_file)
-    grid_worlds = grid_worlds[0:num_trials]
-
-    lam_values = np.linspace(30, 50, num = 5) # range of lambda values to test
-    b = 6 # number of paths to return
-
-    # solve setup exactly to determine optimal reward
-    optimal_rewards = np.zeros(num_trials)
-    for idx_trial, grid_world in enumerate(grid_worlds):
-        _, optimal_reward,_ , _ = exactSolve(grid_world, b);
-        optimal_rewards[idx_trial] = optimal_reward/b;
-
-
-    # store results and learned occupancy maps
-    results = np.zeros((len(lam_values), num_trials, 6))
-    occupancy_maps = {}
-    num_iterates = np.zeros((len(lam_values), num_trials))
-    comp_time = np.zeros((len(lam_values), num_trials))
-    # compute average diversity score (two norm),average diversity score (JS norm),
-    # average performance, and average objective function value (two norm + JS norm),
-    # then variance of all five of these metrics
-    for idx_lam, lam in enumerate(lam_values):
-        for idx_trial, grid_world in enumerate(grid_worlds):
-            if lam == 0 or b == 1: # use exct linear programming if lambda = 0 or b =1
-                # solve exactly
-                optimal_occupancies, rewards, iterates, time_elapsed = exactSolve(grid_world, b)
-                div_score_two = 0
-                div_score_js = 0
-            else:
-                # solve using diverse planning algorithm
-                optimal_occupancies, div_score_two, div_score_js, rewards, squared_rewards, iterates, time_elapsed = diversePlanning(grid_world, lam, b, optimal_rewards[idx_trial], obj_metric= Jensen_Shannon, proj_metric = 'two_Norm')
-
-            print("The Lambda Value is: " + str(lam) + ", the trial is: " + str(idx_trial) + ", the Jensen-Shannon Divergence: " + str(div_score_js))
-            # save results
-            obj_value_two = (lam * div_score_two) + rewards
-            obj_value_js = (lam * div_score_js) + rewards
-            results[idx_lam, idx_trial, 0:6] = [div_score_two, div_score_js, rewards, squared_rewards, obj_value_two, obj_value_js]
-            occupancy_maps.update({(lam, idx_trial): optimal_occupancies})
-            num_iterates[idx_lam, idx_trial] = iterates
-            comp_time[idx_lam, idx_trial] = time_elapsed
-
-    return results, b, num_iterates, comp_time, lam_values, occupancy_maps, grid_worlds
-
-def main(grid_path, save_grids, results_path, save_results, occupancy_path, save_occupancy_maps, num_trials):
-    """"
-    runs test performance to get occupancy maps and results for the given problem setup and specified
-    number of trials 'num_trials'
-    then saves results in the specified files if desired (determined by boolean variables
-    save_grids, save_results, save_occupancy_maps
-    """
-    results, num_paths, num_iterates, comp_time, lam_values, occupancy_maps, grid_worlds = test_performance(grid_path, num_trials)
-
-
-    if save_grids:
-        with open(grid_path, 'wb') as grid_world_file:
-            pickle.dump(grid_worlds, grid_world_file)
-
-    if save_results:
-        np.savez(results_path, results = results, num_paths = num_paths, num_iterates = num_iterates, comp_time = comp_time, lam_values = lam_values)
-
-    if save_occupancy_maps:
-        with open(occupancy_path, 'wb') as occupancy_file:
-            pickle.dump(occupancy_maps, occupancy_file)

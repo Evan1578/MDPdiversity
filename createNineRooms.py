@@ -100,8 +100,8 @@ def createEnvironment(correct_transition = .95):
 
 
 # create a set of grid worlds and save in a specified path
-save_path = 'Insert my path here'
-num_trials = 50
+save_path = 'exampleNineRoom'
+num_trials = 1
 
 
 grid_worlds = []

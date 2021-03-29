@@ -94,12 +94,12 @@ def createEnvironment(correct_transition = .85):
 
 
 # create a set of grid worlds and save in a specified path
-save_path = 'Insert my path here'
-num_trials = 50
+save_path = 'exampleGridWorld'
+num_trials = 1
 
 
 grid_worlds = []
-np.random.seed(0)
+#np.random.seed(0)
 for i in range(0, num_trials):
     grid_world = createEnvironment()
     grid_worlds.append(grid_world)

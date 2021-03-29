@@ -8,7 +8,7 @@ from matplotlib import cm
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 
 
-def visualize_occupancy_maps(occupancy_maps, grid_world, index):
+def visualize_occupancy_maps(occupancy_maps, grid_world):
     # define colormap
     sequential = cm.get_cmap('Blues', 256)
     check = np.linspace(0, 1, 256)
@@ -64,5 +64,5 @@ def main(occupancy_path, grid_path, trial, identifier):
 
     grid_world = grid_worlds[trial]
     occupancy_maps_viz = occupancy_maps[(identifier, trial)]
-    visualize_occupancy_maps(occupancy_maps_viz, grid_world, lam)
+    visualize_occupancy_maps(occupancy_maps_viz, grid_world)
 
